@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>xterm.js Terminal</title>
+    <style>
+        html, body, #terminal-container {
+            height: 100%;
+            width: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            font-family: 'JetBrains Mono', 'Courier New', monospace;
+        }
+        
+        #terminal {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        
+        #input-overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 24px;
+            background-color: #252526;
+            border-top: 1px solid #3e3e3e;
+            display: flex;
+            align-items: center;
+            padding: 0 8px;
+            font-size: 11px;
+            color: #858585;
+            z-index: 10;
+        }
+        
+        #prompt {
+            color: #4ec9b0;
+            margin-right: 8px;
+        }
+        
+        #input-field {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: #d4d4d4;
+            font-family: 'JetBrains Mono', 'Courier New', monospace;
+            font-size: 12px;
+            outline: none;
+        }
+        
+        .banner {
+            background-color: #44475a;
+            color: #f8f8f2;
+            padding: 8px;
+            font-size: 11px;
+            border-bottom: 1px solid #3e3e3e;
+        }
+    </style>
+</head>
+<body>
+    <div id="terminal-container">
+        <div id="terminal"></div>
+        <div id="input-overlay">
+            <span id="prompt">user@android:/ $</span>
+            <input id="input-field" type="text" autocomplete="off" spellcheck="false">
+        </div>
+    </div>
+
+    <script>
+        // xterm.js configuration
+        const terminalConfig = {
+            fontSize: 14,
+            fontFamily: 'JetBrains Mono',
+            theme: {
+                background: '#1e1e1e',
+                foreground: '#d4d4d4',
+                cursor: '#ffffff',
+                cursorAccent: '#000000',
+                selection: '#264f78',
+                black: '#000000',
+                red: '#cd3131',
+                green: '#0dbc79',
+                yellow: '#e5e510',
+                blue: '#2472c8',
+                magenta: '#bc3fbc',
+                cyan: '#11a8cd',
+                white: '#e5e5e5',
+                brightBlack: '#666666',
+                brightRed: '#f14c4c',
+                brightGreen: '#23d18b',
+                brightYellow: '#f5f543',
+                brightBlue: '#3b8eea',
+                brightMagenta: '#f0f',
+                brightCyan: '#29b8db',
+                brightWhite: '#e5e5e5'
+            },
+            scrollback: 1000,
+            tabStopWidth: 8,
+            bellStyle: 'sound',
+            cursorBlink: true,
+            cursorStyle: 'bar',
+            allowProposedApi: true
+        };
+
+        // Initialize xterm.js
+        const terminal = new Terminal(terminalConfig);
+        const fitAddon = new FitAddon();
+        const webLinksAddon = new WebLinksAddon();
+        
+        terminal.loadAddon(fitAddon);
+        terminal.loadAddon(webLinksAddon);
+        
+        terminal.open(document.getElementById('terminal'));
+        fitAddon.fit();
+        
+        // Set up communication with Flutter
+        window.terminal = terminal;
+        
+        // Handle terminal ready
+        if (window.flutter_inappwebview) {
+            window.flutter_inappwebview.callHandler('onTerminalReady');
+        }
+        
+        // Handle terminal output
+        terminal.onData(function(data) {
+            // Send input to Flutter
+            if (window.flutter_inappwebview) {
+                window.flutter_inappwebview.callHandler('onTerminalInput', data);
+            }
+        });
+        
+        // Handle terminal resize
+        terminal.onResize(function(size) {
+            if (window.flutter_inappwebview) {
+                window.flutter_inappwebview.callHandler('onTerminalResize', size.cols, size.rows);
+            }
+        });
+        
+        // Expose methods for Flutter to call
+        window.terminalBridge = {
+            write: function(text) {
+                terminal.write(text);
+            },
+            
+            writeln: function(text) {
+                terminal.writeln(text);
+            },
+            
+            clear: function() {
+                terminal.clear();
+            },
+            
+            reset: function() {
+                terminal.reset();
+            },
+            
+            resize: function(cols, rows) {
+                terminal.resize(cols, rows);
+            },
+            
+            setTheme: function(theme) {
+                terminal.setOption('theme', theme);
+            },
+            
+            focus: function() {
+                terminal.focus();
+            }
+        };
+        
+        // Handle window resize
+        window.addEventListener('resize', function() {
+            fitAddon.fit();
+        });
+        
+        // Initialize with welcome message
+        terminal.writeln('\x1b[1;32mWelcome to DroidCode Terminal\x1b[0m');
+        terminal.writeln('\x1b[2mType "help" for available commands\x1b[0m');
+        terminal.writeln('');
+        
+        // Handle input field
+        const inputField = document.getElementById('input-field');
+        let commandBuffer = '';
+        
+        inputField.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                const command = inputField.value;
+                commandBuffer += command;
+                
+                // Echo command
+                terminal.writeln(`user@android:/ $ ${command}`);
+                
+                // Send to Flutter
+                if (window.flutter_inappwebview) {
+                    window.flutter_inappwebview.callHandler('onCommandEntered', command);
+                }
+                
+                inputField.value = '';
+            } else if (e.key === 'Backspace') {
+                if (inputField.selectionStart === 0 && inputField.selectionEnd === inputField.value.length) {
+                    // Handle backspace in terminal
+                    terminal.write('\b \b');
+                }
+            }
+        });
+        
+        // Prevent default form submission
+        inputField.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+            }
+        });
+        
+        // Focus input field
+        inputField.focus();
+    </script>
+    
+    <!-- xterm.js library (would be loaded from assets) -->
+    <script src="lib/xterm.js"></script>
+    <script src="lib/xterm-addon-fit.js"></script>
+    <script src="lib/xterm-addon-web-links.js"></script>
+</body>
+</html>
